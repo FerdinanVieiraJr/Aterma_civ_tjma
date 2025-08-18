@@ -53,12 +53,3 @@ Este projeto foi desenvolvido como uma aplicação de página única (SPA) com u
 * **Estilização:** Tailwind CSS e ícones `lucide-react`.
 * **Inteligência Artificial:** Integração com a API do **Google Gemini** para as tarefas de análise e geração de texto.
 
----
-
-### 🎓 Conexão com os Objetivos do Mestrado
-
-Este projeto exemplifica a aplicação prática da Engenharia de Computação e Sistemas para resolver problemas complexos do mundo real. Ele demonstra:
-
-* **Impacto Social:** O uso da tecnologia para facilitar o acesso à justiça, um pilar fundamental da cidadania.
-* **Arquitetura de Software:** A concepção de uma aplicação com um fluxo de trabalho lógico, gerenciamento de estado e componentes reutilizáveis.
-* **Computação Aplicada:** A utilização direta da **Tecnologia da Informação** para criar uma solução inovadora e produtiva, alinhada aos objetivos do programa de mestrado da UEMA.
