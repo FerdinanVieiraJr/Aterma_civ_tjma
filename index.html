@@ -1,0 +1,327 @@
+import React, { useState, useCallback } from 'react';
+import { UploadCloud, FileText, Mic, Image as ImageIcon, Loader, Wand2, Clipboard, ChevronRight, ChevronLeft, RefreshCw } from 'lucide-react';
+
+// Componente para o cabeçalho e stepper
+const HeaderStepper = ({ step }) => {
+  const steps = ["Upload de Arquivos", "Revisão do Relato", "Modelo da Petição", "Minuta Final"];
+  return (
+    <div className="w-full mb-8">
+      <h1 className="text-3xl font-bold text-center text-gray-800 mb-2">Assistente de Petições Cíveis</h1>
+      <p className="text-center text-gray-500 mb-6">Uma ferramenta para otimizar a elaboração de reclamações via Jus Postulandi</p>
+      <div className="flex items-center justify-center">
+        {steps.map((label, index) => (
+          <React.Fragment key={index}>
+            <div className="flex flex-col items-center">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ${
+                  step > index + 1 ? 'bg-green-500 text-white' : step === index + 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+                }`}
+              >
+                {step > index + 1 ? '✓' : index + 1}
+              </div>
+              <p className={`mt-2 text-xs text-center ${step >= index + 1 ? 'text-gray-700 font-semibold' : 'text-gray-400'}`}>{label}</p>
+            </div>
+            {index < steps.length - 1 && (
+              <div className={`flex-1 h-1 mx-2 transition-all duration-300 ${step > index + 1 ? 'bg-green-500' : 'bg-gray-200'}`}></div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Componente para o Spinner de Carregamento
+const LoadingSpinner = ({ message }) => (
+  <div className="flex flex-col items-center justify-center text-center p-8">
+    <Loader className="w-12 h-12 animate-spin text-blue-600 mb-4" />
+    <p className="text-lg font-semibold text-gray-700">{message}</p>
+    <p className="text-gray-500">Isso pode levar alguns instantes...</p>
+  </div>
+);
+
+// Componente principal da aplicação
+export default function App() {
+  const [step, setStep] = useState(1);
+  const [files, setFiles] = useState([]);
+  const [narrative, setNarrative] = useState("");
+  const [template, setTemplate] = useState("EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A) DE DIREITO DO JUIZADO ESPECIAL CÍVEL DA COMARCA DE [CIDADE/ESTADO]\n\n[NOME DO AUTOR], [nacionalidade], [estado civil], [profissão], portador(a) do RG nº [número do RG] e inscrito(a) no CPF sob o nº [número do CPF], residente e domiciliado(a) no [endereço completo], vem, respeitosamente, perante Vossa Excelência, com fundamento na Lei nº 9.099/95, propor a presente\n\nAÇÃO DE RECLAMAÇÃO CÍVEL\n\nem face de [NOME DO RÉU], [qualificação se souber], com endereço em [endereço do réu], pelos fatos e fundamentos a seguir expostos.\n\nI - DOS FATOS\n\n[RELATAR OS FATOS AQUI]\n\nII - DOS PEDIDOS\n\nDiante do exposto, requer:\n\na) A citação do(a) réu(ré) para, querendo, comparecer à audiência de conciliação e apresentar defesa;\nb) A procedência da presente ação para condenar o(a) réu(ré) a [descrever o pedido principal, ex: pagar a quantia de R$ X,XX];\nc) A condenação do réu ao pagamento de indenização por danos morais no valor de R$ [VALOR DANO MORAL], se aplicável;\nd) A inversão do ônus da prova, nos termos do art. 6º, VIII, do Código de Defesa do Consumidor.\n\nDá-se à causa o valor de R$ [VALOR DA CAUSA].\n\nTermos em que,\nPede deferimento.\n\n[Cidade], [Data].\n\n[NOME DO AUTOR]");
+  const [finalPetition, setFinalPetition] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
+  const [error, setError] = useState("");
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  // Função para lidar com o upload de arquivos
+  const handleFileChange = (e) => {
+    setFiles(Array.from(e.target.files));
+    setError("");
+  };
+
+  // Função para ler o conteúdo de um arquivo de texto
+  const readFileAsText = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (error) => reject(error);
+      reader.readAsText(file);
+    });
+  };
+
+  // Função para chamar a API do Gemini
+  const callGeminiAPI = async (prompt) => {
+      const apiKey = ""; // A chave será injetada pelo ambiente
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+      
+      const payload = {
+          contents: [{ role: "user", parts: [{ text: prompt }] }]
+      };
+
+      const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`Erro na API do Gemini: ${response.status} ${response.statusText} - ${errorBody}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.candidates && result.candidates.length > 0 &&
+          result.candidates[0].content && result.candidates[0].content.parts &&
+          result.candidates[0].content.parts.length > 0) {
+        return result.candidates[0].content.parts[0].text;
+      } else {
+        console.error("Resposta da API em formato inesperado:", result);
+        // Verifica se há um bloqueio de segurança
+        if (result.candidates?.[0]?.finishReason === 'SAFETY') {
+            throw new Error("A resposta foi bloqueada por políticas de segurança. Tente reformular a sua solicitação.");
+        }
+        throw new Error("Não foi possível obter uma resposta válida da IA.");
+      }
+  };
+  
+  // Função para gerar o relato dos fatos com a IA
+  const generateNarrative = async () => {
+    if (files.length === 0) {
+      setError("Por favor, selecione ao menos um arquivo.");
+      return;
+    }
+    setIsLoading(true);
+    setLoadingMessage("Processando arquivos e gerando o relato...");
+    setError("");
+
+    try {
+      let combinedContent = "## DADOS COLETADOS PARA O CASO:\n\n";
+      for (const file of files) {
+        combinedContent += `--- INÍCIO DO DOCUMENTO: ${file.name} ---\n`;
+        if (file.type.startsWith('text/')) {
+          const text = await readFileAsText(file);
+          combinedContent += text;
+        } else {
+          // Simulação para outros tipos de arquivo no MVP
+          if (file.type.startsWith('audio/')) {
+            combinedContent += `[CONTEÚDO DE ÁUDIO (SIMULADO): Cliente relata verbalmente que comprou um celular na Loja ABC em 10/06/2025 e que o aparelho parou de ligar uma semana depois. Tentou contato com a loja e não obteve resposta.]\n`;
+          } else if (file.type.startsWith('image/')) {
+            combinedContent += `[CONTEÚDO DE IMAGEM (SIMULADO): Foto da nota fiscal nº 12345, emitida pela Loja ABC em 10/06/2025, no valor de R$ 1.800,00, referente a um celular modelo Y.]\n`;
+          } else if (file.type === 'application/pdf') {
+            combinedContent += `[CONTEÚDO DE PDF (SIMULADO): Termo de garantia do produto indicando cobertura de 1 ano para defeitos de fabricação.]\n`;
+          }
+        }
+        combinedContent += `\n--- FIM DO DOCUMENTO: ${file.name} ---\n\n`;
+      }
+
+      const prompt = `Você é um assistente jurídico de um Juizado Especial Cível no Brasil. Sua tarefa é analisar os fragmentos de informação a seguir, provenientes de diversos arquivos de um caso, e redigir um "Relato dos Fatos" claro, objetivo, formal e em ordem cronológica para uma petição inicial. O texto deve ser escrito em terceira pessoa e focado nos eventos relevantes para a lide. Ignore os nomes dos arquivos e foque apenas no conteúdo.\n\n${combinedContent}`;
+      
+      const aiResponse = await callGeminiAPI(prompt);
+      setNarrative(aiResponse);
+      setStep(2);
+
+    } catch (err) {
+      setError(`Erro ao gerar relato: ${err.message}`);
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Função para gerar a petição final com a IA
+  const generatePetition = async () => {
+    if (!narrative.trim() || !template.trim()) {
+      setError("O relato dos fatos e o modelo não podem estar vazios.");
+      return;
+    }
+    setIsLoading(true);
+    setLoadingMessage("Elaborando a minuta da petição...");
+    setError("");
+
+    try {
+        const prompt = `Você é um especialista em direito processual civil brasileiro, focado em Juizados Especiais Cíveis. Sua tarefa é redigir uma petição inicial completa e profissional. Utilize o "Modelo de Petição" como base e o "Relato dos Fatos" para preencher a seção correspondente. Além disso, preencha os outros placeholders (como [NOME DO AUTOR], [VALOR DA CAUSA], etc.) com informações plausíveis e consistentes com o relato. A data de hoje é 16 de julho de 2025 e a comarca é São Luís/MA. Seja detalhista no preenchimento dos dados.\n\n--- RELATO DOS FATOS ---\n${narrative}\n\n--- MODELO DE PETIÇÃO ---\n${template}`;
+
+        const finalDoc = await callGeminiAPI(prompt);
+        setFinalPetition(finalDoc);
+        setStep(4);
+
+    } catch (err)
+     {
+      setError(`Erro ao gerar petição: ${err.message}`);
+      console.error(err);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  // Função para copiar o texto para a área de transferência
+  const copyToClipboard = () => {
+    const textToCopy = finalPetition;
+    const textArea = document.createElement("textarea");
+    textArea.value = textToCopy;
+    textArea.style.position = "fixed"; // Previne o scroll
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      setError('Falha ao copiar o texto.');
+    }
+    document.body.removeChild(textArea);
+  };
+
+  const startOver = () => {
+    setStep(1);
+    setFiles([]);
+    setNarrative("");
+    setFinalPetition("");
+    setError("");
+  }
+
+  // Renderização condicional baseada na etapa (step)
+  const renderStep = () => {
+    if (isLoading) {
+      return <LoadingSpinner message={loadingMessage} />;
+    }
+
+    switch (step) {
+      case 1:
+        return (
+          <div className="w-full">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Passo 1: Upload de Arquivos</h2>
+            <p className="text-gray-600 mb-6">Envie áudios, imagens, PDFs ou textos com o relato e os documentos do caso.</p>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50 hover:bg-gray-100 transition-colors">
+              <UploadCloud className="mx-auto h-12 w-12 text-gray-400" />
+              <label htmlFor="file-upload" className="mt-4 text-sm font-semibold text-blue-600 cursor-pointer">
+                Selecione os arquivos
+              </label>
+              <input id="file-upload" name="file-upload" type="file" className="sr-only" multiple onChange={handleFileChange} />
+              <p className="text-xs text-gray-500 mt-1">ou arraste e solte aqui</p>
+            </div>
+            {files.length > 0 && (
+              <div className="mt-6">
+                <h3 className="font-semibold text-gray-700">Arquivos selecionados:</h3>
+                <ul className="mt-2 list-disc list-inside bg-white p-4 rounded-md border">
+                  {files.map((file, index) => (
+                    <li key={index} className="text-sm text-gray-600 flex items-center">
+                      {file.type.startsWith('audio/') && <Mic className="w-4 h-4 mr-2 text-blue-500" />}
+                      {file.type.startsWith('image/') && <ImageIcon className="w-4 h-4 mr-2 text-green-500" />}
+                      {file.type === 'application/pdf' && <FileText className="w-4 h-4 mr-2 text-red-500" />}
+                      {file.type.startsWith('text/') && <FileText className="w-4 h-4 mr-2 text-gray-500" />}
+                      {file.name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
+            <div className="mt-8 flex justify-end">
+              <button onClick={generateNarrative} disabled={files.length === 0} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center gap-2 transition-all disabled:bg-gray-400 disabled:cursor-not-allowed">
+                Gerar Relato dos Fatos <Wand2 className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        );
+      case 2:
+        return (
+          <div className="w-full">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Passo 2: Revisão do Relato dos Fatos</h2>
+            <p className="text-gray-600 mb-6">A IA gerou o relato abaixo. Revise, edite e complemente o texto conforme necessário.</p>
+            <textarea
+              className="w-full h-80 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow bg-gray-50"
+              value={narrative}
+              onChange={(e) => setNarrative(e.target.value)}
+            />
+            <div className="mt-8 flex justify-between">
+              <button onClick={() => setStep(1)} className="px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 flex items-center gap-2 transition-all">
+                <ChevronLeft className="w-5 h-5" /> Voltar
+              </button>
+              <button onClick={() => setStep(3)} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 flex items-center gap-2 transition-all">
+                Próximo Passo <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        );
+      case 3:
+        return (
+          <div className="w-full">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Passo 3: Forneça o Modelo da Petição</h2>
+            <p className="text-gray-600 mb-6">Cole abaixo o seu modelo de petição. Certifique-se de que ele contenha marcadores como `[RELATAR OS FATOS AQUI]`.</p>
+            <textarea
+              className="w-full h-80 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow font-mono text-sm"
+              value={template}
+              onChange={(e) => setTemplate(e.target.value)}
+            />
+            {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
+            <div className="mt-8 flex justify-between">
+              <button onClick={() => setStep(2)} className="px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 flex items-center gap-2 transition-all">
+                <ChevronLeft className="w-5 h-5" /> Voltar
+              </button>
+              <button onClick={generatePetition} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 flex items-center gap-2 transition-all">
+                Gerar Minuta da Petição <Wand2 className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        );
+      case 4:
+        return (
+          <div className="w-full">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Passo 4: Minuta Final</h2>
+            <p className="text-gray-600 mb-6">A minuta da petição está pronta. Faça os ajustes finais e copie o texto para o sistema do PJE.</p>
+            <textarea
+              className="w-full h-[500px] p-6 border border-gray-300 rounded-lg bg-white overflow-y-auto whitespace-pre-wrap font-serif leading-relaxed"
+              value={finalPetition}
+              onChange={(e) => setFinalPetition(e.target.value)}
+            />
+             <div className="mt-8 flex justify-between items-center">
+              <button onClick={startOver} className="px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 flex items-center gap-2 transition-all">
+                <RefreshCw className="w-5 h-5" /> Começar de Novo
+              </button>
+              <button onClick={copyToClipboard} className={`px-6 py-3 text-white font-semibold rounded-lg shadow-md flex items-center gap-2 transition-all ${copySuccess ? 'bg-green-500' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                <Clipboard className="w-5 h-5" /> {copySuccess ? 'Copiado!' : 'Copiar Texto'}
+              </button>
+            </div>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="bg-gray-50 min-h-screen flex flex-col items-center p-4 sm:p-8 font-sans">
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-xl p-8">
+        <HeaderStepper step={step} />
+        <div className="mt-10">
+          {renderStep()}
+        </div>
+      </div>
+       <footer className="text-center mt-8 text-gray-500 text-sm">
+        <p>Desenvolvido com o apoio do Gemini. Versão 1.1.0 (MVP)</p>
+      </footer>
+    </div>
+  );
+}
